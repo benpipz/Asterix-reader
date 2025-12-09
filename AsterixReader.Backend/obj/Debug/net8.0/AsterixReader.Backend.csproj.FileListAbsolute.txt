@@ -33,3 +33,4 @@ D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\refint\Aster
 D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\AsterixReader.Backend.pdb
 D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\AsterixReader.Backend.genruntimeconfig.cache
 D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\ref\AsterixReader.Backend.dll
+D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\AsterixReader.Backend.sourcelink.json
