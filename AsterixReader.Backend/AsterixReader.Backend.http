@@ -1,0 +1,67 @@
+@AsterixReader.Backend_HostAddress = http://localhost:5000
+
+### Get All Data
+GET {{AsterixReader.Backend_HostAddress}}/api/data
+Accept: application/json
+
+### Get Data Count
+GET {{AsterixReader.Backend_HostAddress}}/api/data/count
+Accept: application/json
+
+### Send JSON Data
+POST {{AsterixReader.Backend_HostAddress}}/api/data/send
+Content-Type: application/json
+
+{
+  "type": "event",
+  "eventId": "10d260cf-9c6f-4835-8e2d-03563fa00526",
+  "eventType": "error",
+  "message": "Event message 7784",
+  "source": "Source-2",
+  "metadata": {
+    "level": 4,
+    "category": "Category1",
+    "data": {
+      "moredata": {
+        "key": "value"
+      }
+    }
+  },
+  "timestamp": "2025-12-09T19:08:44.8652300Z"
+}
+
+### Generate Mock Data
+POST {{AsterixReader.Backend_HostAddress}}/api/data/mock
+Accept: application/json
+
+### Generate Batch Mock Data
+POST {{AsterixReader.Backend_HostAddress}}/api/data/mock/batch?count=5
+Accept: application/json
+
+### Clear All Data
+DELETE {{AsterixReader.Backend_HostAddress}}/api/data
+Accept: application/json
+
+### Send JSON Data
+POST http://localhost:5000/api/data/send
+Content-Type: application/json
+
+{
+  "type": "event",
+  "eventId": "10d260cf-9c6f-4835-8e2d-03563fa00526",
+  "eventType": "error",
+  "message": "Event message 7784",
+  "source": "Source-2",
+  "metadata": {
+    "level": 4,
+    "category": "Category1",
+    "data": {
+      "moredata": {
+        "key": "value"
+      }
+    }
+  },
+  "timestamp": "2025-12-09T19:08:44.8652300Z"
+}
+
+###

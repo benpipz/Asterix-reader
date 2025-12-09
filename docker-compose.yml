@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./AsterixReader.Backend
+      dockerfile: Dockerfile
+    container_name: asterix-reader-backend
+    ports:
+      - "5000:5000"
+      - "5000:5000/udp"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5000
+    networks:
+      - asterix-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5000/swagger/index.html"] || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./asterix-reader-frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_SIGNALR_URL: http://localhost:5000/datahub
+        VITE_API_URL: http://localhost:5000
+    container_name: asterix-reader-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - asterix-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"] || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  asterix-network:
+    driver: bridge
+

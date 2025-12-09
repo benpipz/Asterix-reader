@@ -1,0 +1,16 @@
+bin/
+obj/
+*.user
+*.suo
+*.cache
+.vs/
+.vscode/
+*.db
+*.db-shm
+*.db-wal
+*.log
+node_modules/
+.git/
+.gitignore
+*.md
+

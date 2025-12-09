@@ -1,0 +1,13 @@
+.git/
+.gitignore
+*.md
+.vscode/
+.idea/
+*.log
+.DS_Store
+node_modules/
+bin/
+obj/
+*.user
+*.suo
+
