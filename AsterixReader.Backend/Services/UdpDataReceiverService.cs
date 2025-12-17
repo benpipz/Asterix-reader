@@ -1,83 +1,203 @@
 using System.Net;
 using System.Net.Sockets;
 using AsterixReader.Backend.Configuration;
-using Microsoft.Extensions.Options;
 
 namespace AsterixReader.Backend.Services;
 
 public class UdpDataReceiverService : IDataReceiverService, IDisposable
 {
-    private readonly UdpSettings _settings;
+    private UdpReceiverConfig? _config;
     private UdpClient? _udpClient;
     private CancellationTokenSource? _cancellationTokenSource;
+    private Task? _listeningTask;
     private bool _isRunning;
+    private readonly object _lock = new object();
 
     public event EventHandler<byte[]>? DataReceived;
 
-    public UdpDataReceiverService(IOptions<UdpSettings> settings)
+    public UdpDataReceiverService()
     {
-        _settings = settings.Value;
+    }
+
+    public void Configure(UdpReceiverConfig config)
+    {
+        _config = config;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (_isRunning)
-            return;
+        lock (_lock)
+        {
+            if (_isRunning)
+                return;
 
+            if (_config == null)
+                throw new InvalidOperationException("UdpDataReceiverService must be configured before starting.");
+
+            // Ensure any previous instance is fully stopped
+            StopInternal();
+        }
+
+        // Create new cancellation token source
         _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _udpClient = new UdpClient(new IPEndPoint(IPAddress.Parse(_settings.ListenAddress), _settings.Port));
-        _isRunning = true;
+        
+        // Create completely new UDP client
+        var localEndPoint = new IPEndPoint(IPAddress.Parse(_config.ListenAddress), _config.Port);
+        _udpClient = new UdpClient(localEndPoint);
 
-        _ = Task.Run(async () => await ListenForDataAsync(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
+        // Join multicast group if configured
+        if (_config.JoinMulticastGroup && !string.IsNullOrEmpty(_config.MulticastAddress))
+        {
+            try
+            {
+                var multicastAddress = IPAddress.Parse(_config.MulticastAddress);
+                _udpClient.JoinMulticastGroup(multicastAddress);
+                Console.WriteLine($"Joined multicast group: {multicastAddress}");
+            }
+            catch (Exception ex)
+            {
+                _udpClient?.Dispose();
+                _udpClient = null;
+                Console.WriteLine($"Failed to join multicast group {_config.MulticastAddress}: {ex.Message}");
+                throw;
+            }
+        }
+
+        lock (_lock)
+        {
+            _isRunning = true;
+            _listeningTask = Task.Run(async () => await ListenForDataAsync(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
+        }
+
+        Console.WriteLine($"UDP Receiver started on {_config.ListenAddress}:{_config.Port}");
     }
 
     public Task StopAsync()
     {
-        _isRunning = false;
-        _cancellationTokenSource?.Cancel();
-        _udpClient?.Close();
-        _udpClient?.Dispose();
+        lock (_lock)
+        {
+            StopInternal();
+        }
         return Task.CompletedTask;
+    }
+
+    private void StopInternal()
+    {
+        if (!_isRunning && _udpClient == null)
+            return;
+
+        _isRunning = false;
+
+        // Cancel token first
+        _cancellationTokenSource?.Cancel();
+
+        // Close and dispose the socket immediately - this will interrupt ReceiveAsync
+        try
+        {
+            // Leave multicast group if joined
+            if (_udpClient != null && _config != null && _config.JoinMulticastGroup && !string.IsNullOrEmpty(_config.MulticastAddress))
+            {
+                try
+                {
+                    var multicastAddress = IPAddress.Parse(_config.MulticastAddress);
+                    _udpClient.DropMulticastGroup(multicastAddress);
+                    Console.WriteLine($"Left multicast group: {multicastAddress}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error leaving multicast group: {ex.Message}");
+                }
+            }
+
+            // Force close the socket - this will cause ReceiveAsync to throw immediately
+            _udpClient?.Close();
+            _udpClient?.Dispose();
+            _udpClient = null;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error closing UDP socket: {ex.Message}");
+        }
+
+        // Wait for listening task to complete (with timeout)
+        if (_listeningTask != null)
+        {
+            try
+            {
+                _listeningTask.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error waiting for listening task: {ex.Message}");
+            }
+            _listeningTask = null;
+        }
+
+        // Dispose cancellation token
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+
+        Console.WriteLine("UDP Receiver stopped and socket closed");
     }
 
     private async Task ListenForDataAsync(CancellationToken cancellationToken)
     {
-        while (!cancellationToken.IsCancellationRequested && _isRunning)
+        try
         {
-            try
+            while (!cancellationToken.IsCancellationRequested && _isRunning)
             {
-                if (_udpClient == null)
-                    break;
-
-                var result = await _udpClient.ReceiveAsync(cancellationToken);
-                if (result.Buffer.Length > 0)
+                UdpClient? client;
+                lock (_lock)
                 {
-                    DataReceived?.Invoke(this, result.Buffer);
+                    client = _udpClient;
+                    if (client == null || !_isRunning)
+                        break;
+                }
+
+                try
+                {
+                    var result = await client.ReceiveAsync(cancellationToken);
+                    if (result.Buffer.Length > 0 && _isRunning)
+                    {
+                        DataReceived?.Invoke(this, result.Buffer);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Socket was disposed, exit immediately
+                    break;
+                }
+                catch (SocketException)
+                {
+                    // Socket error - exit if not running
+                    if (!_isRunning)
+                        break;
+                    // Otherwise wait a bit and check again
+                    await Task.Delay(100, cancellationToken);
                 }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (SocketException ex)
-            {
-                // Log error but continue listening
-                Console.WriteLine($"UDP Socket Error: {ex.Message}");
-                await Task.Delay(1000, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Unexpected error in UDP listener: {ex.Message}");
-                await Task.Delay(1000, cancellationToken);
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when stopping
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"UDP listener error: {ex.Message}");
         }
     }
 
     public void Dispose()
     {
-        StopAsync().Wait(1000);
-        _udpClient?.Dispose();
-        _cancellationTokenSource?.Dispose();
+        lock (_lock)
+        {
+            StopInternal();
+        }
     }
 }
+
 

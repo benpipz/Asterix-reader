@@ -55,6 +55,14 @@
               "target": "Package",
               "version": "[8.0.18, )"
             },
+            "PacketDotNet": {
+              "target": "Package",
+              "version": "[1.4.8, )"
+            },
+            "SharpPcap": {
+              "target": "Package",
+              "version": "[6.3.1, )"
+            },
             "Swashbuckle.AspNetCore": {
               "target": "Package",
               "version": "[6.6.2, )"

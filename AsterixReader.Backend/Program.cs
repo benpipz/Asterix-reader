@@ -14,14 +14,18 @@ var app = builder.Build();
 // CORS must be early in the pipeline, before other middleware
 app.UseCors("AllowFrontend");
 
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments (including Docker/Production)
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Asterix Reader API v1");
+    c.RoutePrefix = "swagger"; // Swagger UI will be available at /swagger
+});
 
-// Only use HTTPS redirection in production
-if (!app.Environment.IsDevelopment())
+// Only use HTTPS redirection in production if HTTPS is configured
+// Skip in Docker if HTTPS_PORT is not set
+var httpsPort = builder.Configuration["ASPNETCORE_HTTPS_PORT"];
+if (!app.Environment.IsDevelopment() && !string.IsNullOrEmpty(httpsPort))
 {
     app.UseHttpsRedirection();
 }

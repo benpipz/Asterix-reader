@@ -34,3 +34,7 @@ D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\AsterixReade
 D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\AsterixReader.Backend.genruntimeconfig.cache
 D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\ref\AsterixReader.Backend.dll
 D:\Programing\Asterix-reader\AsterixReader.Backend\obj\Debug\net8.0\AsterixReader.Backend.sourcelink.json
+D:\Programing\Asterix-reader\AsterixReader.Backend\bin\Debug\net8.0\PacketDotNet.dll
+D:\Programing\Asterix-reader\AsterixReader.Backend\bin\Debug\net8.0\SharpPcap.dll
+D:\Programing\Asterix-reader\AsterixReader.Backend\bin\Debug\net8.0\System.Text.Encoding.CodePages.dll
+D:\Programing\Asterix-reader\AsterixReader.Backend\bin\Debug\net8.0\runtimes\win\lib\net8.0\System.Text.Encoding.CodePages.dll

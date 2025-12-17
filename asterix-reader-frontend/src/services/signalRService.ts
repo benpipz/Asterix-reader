@@ -2,7 +2,8 @@ import * as signalR from '@microsoft/signalr';
 import { ReceivedData } from '../types/data';
 
 // SignalR Hub URL - adjust if your backend runs on a different port
-const HUB_URL = import.meta.env.VITE_SIGNALR_URL || 'http://localhost:5000/datahub';
+// Use relative URL if no env var is set (works with nginx proxy in Docker)
+const HUB_URL = import.meta.env.VITE_SIGNALR_URL || '/datahub';
 
 class SignalRService {
   private connection: signalR.HubConnection | null = null;
@@ -134,7 +135,8 @@ class SignalRService {
   }
 
   async clearAllData(): Promise<void> {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    // Use relative URL if no env var is set (works with nginx proxy in Docker)
+    const API_URL = import.meta.env.VITE_API_URL || '';
     const response = await fetch(`${API_URL}/api/data`, {
       method: 'DELETE',
       headers: {

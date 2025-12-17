@@ -6,3 +6,4 @@ public class DataMessage
     public string MessageType { get; set; } = "DataReceived";
 }
 
+

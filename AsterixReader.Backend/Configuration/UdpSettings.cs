@@ -7,3 +7,4 @@ public class UdpSettings
     public int BufferSize { get; set; } = 65507;
 }
 
+

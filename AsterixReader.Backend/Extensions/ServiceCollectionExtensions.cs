@@ -45,11 +45,17 @@ public static class ServiceCollectionExtensions
 
         // Register services
         services.AddSingleton<IDataStorageService, DataStorageService>();
-        services.AddSingleton<IDataReceiverService, UdpDataReceiverService>();
         services.AddScoped<DataProcessingService>();
+        
+        // Register receiver services (Transient - created on demand)
+        services.AddTransient<UdpDataReceiverService>();
+        services.AddTransient<PcapDataReceiverService>();
+        
+        // Register receiver manager (Singleton - manages receiver lifecycle)
+        services.AddSingleton<IReceiverManagerService, ReceiverManagerService>();
 
-        // Background service to wire up data receiver
-        services.AddHostedService<DataReceiverBackgroundService>();
+        // Note: DataReceiverBackgroundService is no longer needed
+        // Receivers are started on-demand via API endpoints
 
         return services;
     }

@@ -7,3 +7,4 @@ public interface IDataReceiverService
     event EventHandler<byte[]>? DataReceived;
 }
 
+

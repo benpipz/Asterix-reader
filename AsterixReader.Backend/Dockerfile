@@ -31,6 +31,7 @@ COPY --from=publish /app/publish .
 # Set environment variables
 ENV ASPNETCORE_URLS=http://+:5000
 ENV ASPNETCORE_ENVIRONMENT=Production
+ENV ASPNETCORE_HTTPS_PORT=
 
 ENTRYPOINT ["dotnet", "AsterixReader.Backend.dll"]
 

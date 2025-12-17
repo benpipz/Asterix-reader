@@ -16,15 +16,17 @@ Plan document:
 # Asterix Reader - Project Plan
 
 ## Overview
-A real-time data monitoring application with a TypeScript React frontend and ASP.NET 8.0 backend. The backend receives binary data via UDP sockets, deserializes it into JSON objects, and pushes updates to the frontend in real-time.
+A real-time data monitoring application with a TypeScript React frontend and ASP.NET 8.0 backend. The application supports two data source modes: UDP sockets or PCAP file processing. Users can select their preferred mode and configure it dynamically. The backend receives binary data from the selected source, deserializes it into JSON objects, and pushes updates to the frontend in real-time.
 
 ## Architecture
 
 ### High-Level Architecture
 ```
-[UDP Socket] → [ASP.NET Backend] → [SignalR Hub] → [React Frontend]
-                      ↓
-              [In-Memory Storage]
+[Mode Selection UI] → [Configuration Form] → [Backend API] → [Receiver Manager]
+                                                                    ↓
+[UDP Socket / PCAP File] → [IDataReceiverService] → [DataProcessingService] → [SignalR Hub] → [React Frontend]
+                                                                    ↓
+                                                            [In-Memory Storage]
 ```
 
 ## Backend (ASP.NET 8.0)
@@ -35,20 +37,28 @@ AsterixReader.Backend/
 ├── Program.cs
 ├── AsterixReader.Backend.csproj
 ├── Controllers/
-│   └── DataController.cs
+│   ├── DataController.cs
+│   └── ReceiverController.cs
 ├── Hubs/
 │   └── DataHub.cs (SignalR)
 ├── Services/
 │   ├── IDataReceiverService.cs
 │   ├── UdpDataReceiverService.cs
+│   ├── PcapDataReceiverService.cs
+│   ├── IReceiverManagerService.cs
+│   ├── ReceiverManagerService.cs
 │   ├── IDataStorageService.cs
 │   ├── DataStorageService.cs
-│   └── DataProcessingService.cs
+│   ├── DataProcessingService.cs
+│   └── DataReceiverBackgroundService.cs
 ├── Models/
 │   ├── ReceivedData.cs
-│   └── DataMessage.cs
+│   ├── DataMessage.cs
+│   └── ReceiverStatus.cs
 ├── Configuration/
-│   └── UdpSettings.cs
+│   ├── UdpSettings.cs
+│   ├── UdpReceiverConfig.cs
+│   └── PcapReceiverConfig.cs
 └── Extensions/
     └── ServiceCollectionExtensions.cs
 ```
@@ -70,13 +80,22 @@ public interface IDataReceiverService
 
 **UDP Implementation**: `UdpDataReceiverService`
 - Configurable UDP port and IP address
+- Supports multicast group joining
 - Listens for incoming UDP packets
 - Raises `DataReceived` event when data arrives
 - Handles socket errors gracefully
+- Supports dynamic reconfiguration
+
+**PCAP Implementation**: `PcapDataReceiverService`
+- Implements `IDataReceiverService`
+- Uses SharpPcap library for PCAP file parsing
+- Accepts PCAP file path and Wireshark-style filter string
+- Processes packets matching the filter
+- Extracts packet payloads and raises `DataReceived` events
+- Handles file reading asynchronously
 
 **Future Extensions**:
 - `TcpDataReceiverService` for TCP connections
-- `FileDataReceiverService` for file-based input
 - `KafkaDataReceiverService` for Kafka streams
 - `RabbitMqDataReceiverService` for RabbitMQ
 
@@ -122,16 +141,80 @@ public interface IDataStorageService
 - Event: `DataReceived` - Broadcasts new data to all connected clients
 - Event: `DataUpdated` - Notifies clients of data updates
 
-#### 2.5 API Controller
-**Purpose**: RESTful endpoints for data retrieval
+#### 2.5 Receiver Manager Service
+**Purpose**: Manages active receiver instance and runtime mode switching
 
-**Endpoints**:
+**Interface**: `IReceiverManagerService`
+```csharp
+public interface IReceiverManagerService
+{
+    Task StartUdpReceiverAsync(UdpReceiverConfig config, CancellationToken cancellationToken);
+    Task StartPcapReceiverAsync(PcapReceiverConfig config, CancellationToken cancellationToken);
+    Task StopReceiverAsync();
+    ReceiverStatus GetStatus();
+    string? GetCurrentMode();
+}
+```
+
+**Implementation**: `ReceiverManagerService`
+- Manages active receiver instance
+- Handles runtime switching between UDP and PCAP modes
+- Stops current receiver before starting new one
+- Provides status information (current mode, running state)
+- Thread-safe receiver management
+
+#### 2.6 API Controllers
+
+**DataController** - RESTful endpoints for data retrieval
 - `GET /api/data` - Get all data
 - `GET /api/data/{id}` - Get specific data by ID
 - `GET /api/data/count` - Get total count
 - `DELETE /api/data` - Clear all data (used by frontend Clear All button)
 
-### 3. Configuration
+**ReceiverController** - Receiver management endpoints
+- `POST /api/receiver/udp/start` - Start UDP receiver with configuration
+  - Body: `UdpReceiverConfig` (port, listenAddress, joinMulticastGroup, multicastAddress)
+- `POST /api/receiver/pcap/start` - Start PCAP receiver with configuration
+  - Body: `PcapReceiverConfig` (filePath, filter)
+- `POST /api/receiver/stop` - Stop current receiver
+- `GET /api/receiver/status` - Get current receiver status
+
+### 3. Configuration Models
+
+#### UdpReceiverConfig
+**File**: `AsterixReader.Backend/Configuration/UdpReceiverConfig.cs`
+```csharp
+public class UdpReceiverConfig
+{
+    public int Port { get; set; }
+    public string ListenAddress { get; set; }
+    public bool JoinMulticastGroup { get; set; }
+    public string? MulticastAddress { get; set; }
+}
+```
+
+#### PcapReceiverConfig
+**File**: `AsterixReader.Backend/Configuration/PcapReceiverConfig.cs`
+```csharp
+public class PcapReceiverConfig
+{
+    public string FilePath { get; set; } = string.Empty;
+    public string? Filter { get; set; }
+}
+```
+
+#### ReceiverStatus
+**File**: `AsterixReader.Backend/Models/ReceiverStatus.cs`
+```csharp
+public class ReceiverStatus
+{
+    public string? Mode { get; set; } // "UDP", "PCAP", or null
+    public bool IsRunning { get; set; }
+    public object? Config { get; set; } // Current configuration
+}
+```
+
+### 4. Configuration
 
 #### appsettings.json
 ```json
@@ -141,12 +224,8 @@ public interface IDataStorageService
     "ListenAddress": "0.0.0.0",
     "BufferSize": 65507
   },
-  "DataReceiver": {
-    "Type": "Udp",
-    "Udp": {
-      "Port": 5000,
-      "ListenAddress": "0.0.0.0"
-    }
+  "Receiver": {
+    "DefaultMode": null
   },
   "Cors": {
     "AllowedOrigins": ["http://localhost:3000", "http://localhost:5173"]
@@ -154,19 +233,20 @@ public interface IDataStorageService
 }
 ```
 
-### 4. Dependency Injection Setup
-- Register `IDataReceiverService` → `UdpDataReceiverService` (configurable)
+### 5. Dependency Injection Setup
+- Register `IReceiverManagerService` → `ReceiverManagerService` (Singleton)
 - Register `IDataStorageService` → `DataStorageService` (Singleton)
 - Register `DataProcessingService` (Scoped)
+- Register `PcapDataReceiverService` (Transient - created on demand)
+- Register `UdpDataReceiverService` (Transient - created on demand)
 - Register SignalR services
 - Configure CORS for frontend
 
-### 5. Startup Sequence
+### 6. Startup Sequence
 1. Configure services and dependency injection
-2. Start `IDataReceiverService` as background service
-3. Wire up `DataReceived` event to `DataProcessingService`
-4. Configure SignalR endpoints
-5. Start web server
+2. Configure SignalR endpoints
+3. Start web server
+4. Receiver starts on-demand via API (no automatic startup)
 
 ## Frontend (TypeScript React)
 
@@ -181,16 +261,24 @@ asterix-reader-frontend/
 │   ├── main.tsx
 │   ├── App.tsx
 │   ├── components/
+│   │   ├── ModeSelector.tsx
+│   │   ├── UdpConfigForm.tsx
+│   │   ├── PcapConfigForm.tsx
+│   │   ├── ReceiverStatus.tsx
 │   │   ├── DataList.tsx
 │   │   ├── DataItem.tsx
 │   │   ├── JsonViewer.tsx
-│   │   └── Timestamp.tsx
+│   │   ├── Timestamp.tsx
+│   │   ├── ConfirmModal.tsx
+│   │   └── FileNameModal.tsx
 │   ├── services/
-│   │   └── signalRService.ts
+│   │   ├── signalRService.ts
+│   │   └── receiverService.ts
 │   ├── hooks/
 │   │   └── useSignalR.ts
 │   ├── types/
-│   │   └── data.ts
+│   │   ├── data.ts
+│   │   └── receiver.ts
 │   └── styles/
 │       └── App.css
 └── public/
@@ -203,6 +291,9 @@ asterix-reader-frontend/
 - Sets up SignalR connection
 - Manages global state for data list
 - Handles real-time updates
+- **Mode Selection UI** - Allows users to choose between UDP and PCAP modes
+- **Configuration Forms** - Shows appropriate form based on selected mode
+- **Receiver Status** - Displays current receiver status and allows stopping
 
 #### 2.2 DataList.tsx
 - Displays list of all received JSON objects
@@ -242,7 +333,38 @@ asterix-reader-frontend/
 - Keyboard support (ESC to close, Enter to confirm)
 - Form validation (prevents empty filenames)
 
-#### 2.5 Timestamp.tsx
+#### 2.5 ModeSelector.tsx
+- Radio buttons or tabs for mode selection (UDP / PCAP)
+- Material UI Tabs or RadioGroup component
+- Triggers display of appropriate configuration form
+- Handles mode switching logic
+
+#### 2.6 UdpConfigForm.tsx
+- Form fields:
+  - Port (number input, default: 5000, validation: 1-65535)
+  - Listen Address (text input, default: "0.0.0.0", validation: valid IPv4)
+  - Join Multicast Group (checkbox)
+  - Multicast Address (text input, shown when checkbox checked, required if checked, validation: valid multicast IP 224.0.0.0 - 239.255.255.255)
+- Submit button: "Start UDP Receiver"
+- Form validation with error messages
+
+#### 2.7 PcapConfigForm.tsx
+- Form fields:
+  - File Path (text input where user enters full file path, e.g., "C:\path\to\file.pcap" or "/path/to/file.pcap")
+  - Optional: File browser button (if running in Electron/desktop environment)
+  - Filter String (text input, optional, placeholder: "e.g., udp port 5000")
+- Submit button: "Start PCAP Processing"
+- Help text: Link to Wireshark filter documentation
+- Form validation: File path required
+
+#### 2.8 ReceiverStatus.tsx
+- Displays current receiver status
+- Shows current mode (UDP/PCAP/None)
+- Shows running state
+- "Stop Receiver" button when running
+- Material UI Card or Alert component
+
+#### 2.9 Timestamp.tsx
 - Formats and displays timestamp
 - Shows relative time (e.g., "2 minutes ago")
 - Shows absolute time on hover
@@ -254,6 +376,14 @@ asterix-reader-frontend/
 - Connects to backend hub
 - Listens for `DataReceived` events
 - Provides methods to fetch all data
+
+#### receiverService.ts
+- Manages receiver operations via API
+- `startUdpReceiver(config: UdpReceiverConfig): Promise<void>`
+- `startPcapReceiver(filePath: string, filter?: string): Promise<void>`
+- `stopReceiver(): Promise<void>`
+- `getReceiverStatus(): Promise<ReceiverStatus>`
+- Handles API errors and provides user feedback
 
 #### useSignalR.ts (Custom Hook)
 - React hook for SignalR connection
@@ -278,7 +408,22 @@ asterix-reader-frontend/
 
 ## Data Flow
 
-### Receiving Data
+### Mode Selection and Configuration
+1. User selects mode (UDP or PCAP) via ModeSelector component
+2. Appropriate configuration form is displayed (UdpConfigForm or PcapConfigForm)
+3. User fills in configuration:
+   - UDP: port, listen address, multicast settings
+   - PCAP: file path, optional filter string
+4. User submits configuration form
+5. Frontend calls API endpoint (`/api/receiver/udp/start` or `/api/receiver/pcap/start`)
+6. Backend `ReceiverManagerService`:
+   - Stops current receiver if running
+   - Creates new receiver instance (UdpDataReceiverService or PcapDataReceiverService)
+   - Applies configuration
+   - Starts receiver
+   - Wires up `DataReceived` event to `DataProcessingService`
+
+### Receiving Data (UDP Mode)
 1. UDP socket receives byte array
 2. `UdpDataReceiverService` raises `DataReceived` event
 3. `DataProcessingService` handles event:
@@ -290,11 +435,32 @@ asterix-reader-frontend/
 4. SignalR hub broadcasts to all connected clients
 5. Frontend receives update and adds to list
 
+### Receiving Data (PCAP Mode)
+1. `PcapDataReceiverService` opens PCAP file from provided path
+2. Applies Wireshark-style filter if provided
+3. Iterates through matching packets
+4. Extracts packet payload (UDP data or raw packet data)
+5. For each matching packet, raises `DataReceived` event with packet payload
+6. `DataProcessingService` handles each event (same as UDP mode)
+7. SignalR hub broadcasts to all connected clients
+8. Frontend receives updates and adds to list
+
 ### Initial Load
 1. Frontend connects to SignalR hub
-2. Calls `GetAllData()` method
-3. Receives all stored data
-4. Renders list
+2. Calls `GetReceiverStatus()` to check current receiver state
+3. If receiver is running, calls `GetAllData()` method
+4. Receives all stored data
+5. Renders list
+
+### Runtime Mode Switching
+1. User selects new mode
+2. If receiver is running, frontend calls `/api/receiver/stop`
+3. Backend stops current receiver
+4. Frontend waits for stop confirmation
+5. Shows configuration form for new mode
+6. User submits new configuration
+7. New receiver starts with new configuration
+8. UI updates to show new status
 
 ## Technology Stack
 
@@ -303,6 +469,8 @@ asterix-reader-frontend/
 - **Real-time**: SignalR
 - **JSON**: System.Text.Json
 - **UDP**: System.Net.Sockets.UdpClient
+- **PCAP Processing**: SharpPcap (NuGet package)
+- **Packet Parsing**: PacketDotNet (NuGet package)
 - **Dependency Injection**: Built-in DI container
 
 ### Frontend
@@ -319,10 +487,11 @@ asterix-reader-frontend/
 1. Create ASP.NET 8.0 project
 2. Set up project structure
 3. Implement `IDataReceiverService` interface
-4. Implement `UdpDataReceiverService`
+4. Implement `UdpDataReceiverService` with multicast support
 5. Implement `IDataStorageService` and `DataStorageService`
 6. Create `ReceivedData` model
 7. Set up dependency injection
+8. Install SharpPcap and PacketDotNet NuGet packages
 
 ### Phase 2: Data Processing
 1. Implement `DataProcessingService`
@@ -350,12 +519,30 @@ asterix-reader-frontend/
 5. Add JSON viewer
 6. Style components
 
-### Phase 6: Polish & Testing
-1. Add error handling
-2. Add loading states
-3. Improve UI/UX
-4. Test end-to-end flow
-5. Add unit tests (optional)
+### Phase 6: Mode Selection & Configuration
+1. Implement `ReceiverManagerService` and `IReceiverManagerService`
+2. Create `PcapDataReceiverService` implementing `IDataReceiverService`
+3. Create configuration models (`UdpReceiverConfig`, `PcapReceiverConfig`, `ReceiverStatus`)
+4. Create `ReceiverController` with API endpoints
+5. Update `UdpDataReceiverService` to support dynamic configuration and multicast
+6. Implement frontend `ModeSelector` component
+7. Implement `UdpConfigForm` component with validation
+8. Implement `PcapConfigForm` component
+9. Implement `ReceiverStatus` component
+10. Create `receiverService.ts` for API calls
+11. Update `App.tsx` to integrate mode selection
+12. Add type definitions in `types/receiver.ts`
+
+### Phase 7: Polish & Testing
+1. Add error handling for mode switching
+2. Add loading states for receiver operations
+3. Validate file paths and filter strings
+4. Improve UI/UX for configuration forms
+5. Test end-to-end flow for both modes
+6. Test runtime mode switching
+7. Test multicast UDP functionality
+8. Test PCAP file processing with various filters
+9. Add unit tests (optional)
 
 ## Configuration & Deployment
 
@@ -390,10 +577,13 @@ asterix-reader-frontend/
 - Data filtering and search
 - Export functionality (CSV, JSON)
 - Statistics dashboard
-- Multiple data source support simultaneously
+- Multiple data source support simultaneously (run UDP and PCAP at same time)
 - Authentication and authorization
 - Data retention policies
 - WebSocket fallback for SignalR
+- PCAP file browser/selector UI component
+- Save/load receiver configurations
+- Real-time PCAP file monitoring (watch for new packets in live capture files)
 
 ## Notes
 - In-memory storage means data is lost on restart (acceptable for Phase 1)
@@ -401,6 +591,11 @@ asterix-reader-frontend/
 - Consider rate limiting for high-frequency data
 - Add validation for deserialized data
 - Consider adding health check endpoints
+- PCAP files are read directly from filesystem (frontend and backend on same machine)
+- File paths must be accessible to the backend process
+- PCAP filter strings use Wireshark/Berkeley Packet Filter (BPF) syntax
+- Multicast UDP requires proper network interface configuration
+- Receiver can be stopped and restarted at runtime without restarting the application
 ```
 
 Save this as `PROJECT_PLAN.md` in your workspace. It covers architecture, components, data flow, tech stack, and implementation phases. Should I expand any section or add details?

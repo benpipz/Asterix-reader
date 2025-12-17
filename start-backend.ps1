@@ -4,3 +4,4 @@ Set-Location AsterixReader.Backend
 dotnet run --launch-profile http
 Set-Location ..
 
+
