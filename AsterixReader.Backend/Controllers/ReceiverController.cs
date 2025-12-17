@@ -68,6 +68,50 @@ public class ReceiverController : ControllerBase
         }
     }
 
+    [HttpPost("pcap/upload")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UploadPcapFile(IFormFile file)
+    {
+        try
+        {
+            if (file == null || file.Length == 0)
+            {
+                return BadRequest(new { message = "No file uploaded" });
+            }
+
+            // Validate file extension
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (extension != ".pcap" && extension != ".pcapng")
+            {
+                return BadRequest(new { message = "File must be a .pcap or .pcapng file" });
+            }
+
+            // Create temp directory if it doesn't exist
+            var tempDir = Path.Combine(Path.GetTempPath(), "asterix-reader-pcap");
+            Directory.CreateDirectory(tempDir);
+
+            // Generate unique filename to avoid conflicts
+            var fileName = $"{Guid.NewGuid()}{extension}";
+            var filePath = Path.Combine(tempDir, fileName);
+
+            // Save uploaded file
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            _logger.LogInformation($"PCAP file uploaded: {filePath} ({file.Length} bytes)");
+
+            return Ok(new { filePath, fileName = file.FileName, size = file.Length });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error uploading PCAP file");
+            return BadRequest(new { message = "Failed to upload file", error = ex.Message });
+        }
+    }
+
     [HttpPost("pcap/start")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]

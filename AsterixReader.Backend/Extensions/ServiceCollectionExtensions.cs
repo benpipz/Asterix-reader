@@ -54,6 +54,9 @@ public static class ServiceCollectionExtensions
         // Register receiver manager (Singleton - manages receiver lifecycle)
         services.AddSingleton<IReceiverManagerService, ReceiverManagerService>();
 
+        // Register message mode service (Singleton - stores current message mode state)
+        services.AddSingleton<IMessageModeService, MessageModeService>();
+
         // Note: DataReceiverBackgroundService is no longer needed
         // Receivers are started on-demand via API endpoints
 

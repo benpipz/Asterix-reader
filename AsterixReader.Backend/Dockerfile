@@ -18,8 +18,10 @@ RUN dotnet publish "AsterixReader.Backend.csproj" -c Release -o /app/publish /p:
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
-# Install wget for healthcheck
-RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
+# Install wget for healthcheck and libpcap for SharpPcap
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget libpcap0.8 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Expose ports
 EXPOSE 5000

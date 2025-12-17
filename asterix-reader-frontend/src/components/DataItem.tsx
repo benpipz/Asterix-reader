@@ -23,6 +23,30 @@ export const DataItem = ({ data }: DataItemProps) => {
     setIsExpanded(!isExpanded);
   };
 
+  const getMetadata = (jsonData: string, data?: any): string | null => {
+    try {
+      // First try to get metadata from the data object if provided
+      if (data && typeof data === 'object') {
+        const metadata = data.metadata || data.Metadata || data.METADATA;
+        if (metadata !== undefined && metadata !== null) {
+          return typeof metadata === 'object' ? JSON.stringify(metadata) : String(metadata);
+        }
+      }
+      
+      // Then try to parse jsonData
+      const parsed = JSON.parse(jsonData);
+      // Check for metadata field (case-insensitive, check common variations)
+      const metadata = parsed.metadata || parsed.Metadata || parsed.METADATA;
+      if (metadata !== undefined && metadata !== null) {
+        // If metadata is an object, stringify it; otherwise use it directly
+        return typeof metadata === 'object' ? JSON.stringify(metadata) : String(metadata);
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   const getPreview = (jsonData: string): string => {
     try {
       const parsed = JSON.parse(jsonData);
@@ -98,7 +122,7 @@ export const DataItem = ({ data }: DataItemProps) => {
               whiteSpace: 'nowrap',
             }}
           >
-            {getPreview(data.jsonData)}
+            {getMetadata(data.jsonData, data.data) || getPreview(data.jsonData)}
           </Typography>
         </Box>
       )}

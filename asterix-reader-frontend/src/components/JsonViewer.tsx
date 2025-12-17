@@ -11,9 +11,10 @@ interface JsonViewerProps {
   json: string;
   level?: number;
   showCopyButton?: boolean;
+  trailingComma?: boolean;
 }
 
-export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonViewerProps) => {
+export const JsonViewer = ({ json, level = 0, showCopyButton = false, trailingComma = false }: JsonViewerProps) => {
   const [isExpanded, setIsExpanded] = useState(level === 0);
   const [copySuccess, setCopySuccess] = useState(false);
 
@@ -43,7 +44,7 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
       const hasNestedObjects = entries.some(([_, value]) => typeof value === 'object' && value !== null);
 
       return (
-        <Box sx={{ display: level > 0 ? 'inline-block' : 'block' }}>
+        <Box sx={{ display: level > 0 ? 'inline-flex' : 'block', alignItems: 'flex-start' }}>
           {showCopyButton && level === 0 && (
             <Box sx={{ mb: 1.5, display: 'flex', justifyContent: 'flex-end' }}>
               <Button
@@ -145,46 +146,50 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
                         >
                           :
                         </Typography>
-                        {/* Value with comma inline */}
-                        <Box sx={{ display: 'inline-flex', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                        {/* Value */}
+                        <Box sx={{ display: 'inline-flex', alignItems: 'flex-start' }}>
                           {isNested ? (
-                            <JsonViewer json={JSON.stringify(value)} level={level + 1} />
+                            <JsonViewer json={JSON.stringify(value)} level={level + 1} trailingComma={!isLast} />
                           ) : (
-                            <Typography
-                              component="span"
-                              sx={{
-                                fontFamily: 'monospace',
-                                color:
-                                  typeof value === 'string'
-                                    ? '#ce9178'
-                                    : typeof value === 'number'
-                                    ? '#b5cea8'
-                                    : typeof value === 'boolean'
-                                    ? '#569cd6'
-                                    : value === null
-                                    ? '#808080'
-                                    : 'text.primary',
-                              }}
-                            >
-                              {typeof value === 'string'
-                                ? `"${value}"`
-                                : value === null
-                                ? 'null'
-                                : String(value)}
-                            </Typography>
-                          )}
-                          {/* Comma */}
-                          {!isLast && (
-                            <Typography
-                              component="span"
-                              sx={{
-                                fontFamily: 'monospace',
-                                color: 'text.secondary',
-                                ml: 0.5,
-                              }}
-                            >
-                              ,
-                            </Typography>
+                            <>
+                              <Typography
+                                component="span"
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  color:
+                                    typeof value === 'string'
+                                      ? '#ce9178'
+                                      : typeof value === 'number'
+                                      ? '#b5cea8'
+                                      : typeof value === 'boolean'
+                                      ? '#569cd6'
+                                      : value === null
+                                      ? '#808080'
+                                      : 'text.primary',
+                                  whiteSpace: 'nowrap',
+                                }}
+                              >
+                                {typeof value === 'string'
+                                  ? `"${value}"`
+                                  : value === null
+                                  ? 'null'
+                                  : String(value)}
+                              </Typography>
+                              {/* Comma */}
+                              {!isLast && (
+                                <Typography
+                                  component="span"
+                                  sx={{
+                                    fontFamily: 'monospace',
+                                    color: 'text.secondary',
+                                    ml: 0.5,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  ,
+                                </Typography>
+                              )}
+                            </>
                           )}
                         </Box>
                       </Box>
@@ -192,7 +197,7 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
                   );
                 })}
                 {/* Closing brace */}
-                <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5 }}>
+                <Box sx={{ display: 'inline-flex', alignItems: 'center', mt: 0.5 }}>
                   <Box sx={{ width: 20, mr: 0.5 }} />
                   <Typography
                     component="span"
@@ -204,6 +209,17 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
                   >
                     {'}'}
                   </Typography>
+                  {trailingComma && (
+                    <Typography
+                      component="span"
+                      sx={{
+                        fontFamily: 'monospace',
+                        color: 'text.secondary',
+                      }}
+                    >
+                      ,
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             )}
@@ -222,6 +238,17 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
                 >
                   {'}'}
                 </Typography>
+                {trailingComma && (
+                  <Typography
+                    component="span"
+                    sx={{
+                      fontFamily: 'monospace',
+                      color: 'text.secondary',
+                    }}
+                  >
+                    ,
+                  </Typography>
+                )}
               </Box>
             )}
           </Box>
@@ -310,42 +337,44 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
                     <Box key={index} sx={{ pl: 3 }}>
                       <Box sx={{ display: 'inline-flex', alignItems: 'flex-start', py: 0.25, flexWrap: 'wrap' }}>
                         {isNested ? (
-                          <JsonViewer json={JSON.stringify(item)} level={level + 1} />
+                          <JsonViewer json={JSON.stringify(item)} level={level + 1} trailingComma={!isLast} />
                         ) : (
-                          <Typography
-                            component="span"
-                            sx={{
-                              fontFamily: 'monospace',
-                              color:
-                                typeof item === 'string'
-                                  ? '#ce9178'
-                                  : typeof item === 'number'
-                                  ? '#b5cea8'
-                                  : typeof item === 'boolean'
-                                  ? '#569cd6'
-                                  : item === null
-                                  ? '#808080'
-                                  : 'text.primary',
-                            }}
-                          >
-                            {typeof item === 'string'
-                              ? `"${item}"`
-                              : item === null
-                              ? 'null'
-                              : String(item)}
-                          </Typography>
-                        )}
-                        {!isLast && (
-                          <Typography
-                            component="span"
-                            sx={{
-                              fontFamily: 'monospace',
-                              color: 'text.secondary',
-                              ml: 0.5,
-                            }}
-                          >
-                            ,
-                          </Typography>
+                          <>
+                            <Typography
+                              component="span"
+                              sx={{
+                                fontFamily: 'monospace',
+                                color:
+                                  typeof item === 'string'
+                                    ? '#ce9178'
+                                    : typeof item === 'number'
+                                    ? '#b5cea8'
+                                    : typeof item === 'boolean'
+                                    ? '#569cd6'
+                                    : item === null
+                                    ? '#808080'
+                                    : 'text.primary',
+                              }}
+                            >
+                              {typeof item === 'string'
+                                ? `"${item}"`
+                                : item === null
+                                ? 'null'
+                                : String(item)}
+                            </Typography>
+                            {!isLast && (
+                              <Typography
+                                component="span"
+                                sx={{
+                                  fontFamily: 'monospace',
+                                  color: 'text.secondary',
+                                  ml: 0.5,
+                                }}
+                              >
+                                ,
+                              </Typography>
+                            )}
+                          </>
                         )}
                       </Box>
                     </Box>
@@ -364,6 +393,17 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
                   >
                     ]
                   </Typography>
+                  {trailingComma && (
+                    <Typography
+                      component="span"
+                      sx={{
+                        fontFamily: 'monospace',
+                        color: 'text.secondary',
+                      }}
+                    >
+                      ,
+                    </Typography>
+                  )}
                 </Box>
               </Box>
             )}
@@ -382,6 +422,17 @@ export const JsonViewer = ({ json, level = 0, showCopyButton = false }: JsonView
                 >
                   ]
                 </Typography>
+                {trailingComma && (
+                  <Typography
+                    component="span"
+                    sx={{
+                      fontFamily: 'monospace',
+                      color: 'text.secondary',
+                    }}
+                  >
+                    ,
+                  </Typography>
+                )}
               </Box>
             )}
           </Box>

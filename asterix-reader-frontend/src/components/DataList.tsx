@@ -128,11 +128,13 @@ export const DataList = ({ data, onClearAll }: DataListProps) => {
               No data received yet.
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Waiting for UDP packets on port 5000...
+              Waiting for data from UDP or PCAP receiver...
             </Typography>
           </Paper>
         ) : (
-          data.map((item) => <DataItem key={item.id} data={item} />)
+          [...data].sort((a, b) => 
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          ).map((item) => <DataItem key={item.id} data={item} />)
         )}
       </Stack>
       <ConfirmModal

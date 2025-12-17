@@ -1,4 +1,3 @@
-using System.Net;
 using System.Threading;
 using AsterixReader.Backend.Configuration;
 using PacketDotNet;
@@ -15,6 +14,20 @@ public class PcapDataReceiverService : IDataReceiverService, IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private bool _isRunning;
     private Task? _processingTask;
+    private readonly object _lock = new object();
+    private DisplayFilterEvaluator? _displayFilterEvaluator;
+    private bool _useDisplayFilter;
+
+    public bool IsRunning
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _isRunning;
+            }
+        }
+    }
 
     public event EventHandler<byte[]>? DataReceived;
 
@@ -23,72 +36,146 @@ public class PcapDataReceiverService : IDataReceiverService, IDisposable
         _config = config;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (_isRunning)
-            return;
+        CancellationTokenSource? cancellationTokenSource = null;
+        ICaptureDevice? device = null;
 
-        if (_config == null)
-            throw new InvalidOperationException("PcapDataReceiverService must be configured before starting.");
+        lock (_lock)
+        {
+            if (_isRunning)
+                return Task.CompletedTask;
 
-        if (string.IsNullOrEmpty(_config.FilePath))
-            throw new InvalidOperationException("PCAP file path is required.");
+            if (_config == null)
+                throw new InvalidOperationException("PcapDataReceiverService must be configured before starting.");
 
-        if (!File.Exists(_config.FilePath))
-            throw new FileNotFoundException($"PCAP file not found: {_config.FilePath}");
+            if (string.IsNullOrEmpty(_config.FilePath))
+                throw new InvalidOperationException("PCAP file path is required.");
 
-        _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            if (!File.Exists(_config.FilePath))
+                throw new FileNotFoundException($"PCAP file not found: {_config.FilePath}");
+
+            // Ensure any previous instance is fully stopped
+            StopInternal();
+
+            // Create cancellation token source inside lock to prevent race condition
+            cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _cancellationTokenSource = cancellationTokenSource;
+
+            // Open the PCAP file inside lock
+            device = new CaptureFileReaderDevice(_config.FilePath);
+            device.Open();
+            _device = device;
+        }
 
         try
         {
-            // Open the PCAP file
-            _device = new CaptureFileReaderDevice(_config.FilePath);
-            _device.Open();
 
-            // Apply filter if provided
+            // Check if filter is display filter syntax or BPF syntax
+            _useDisplayFilter = false;
             if (!string.IsNullOrEmpty(_config.Filter))
             {
-                _device.Filter = _config.Filter;
-                Console.WriteLine($"Applied PCAP filter: {_config.Filter}");
+                _useDisplayFilter = DisplayFilterEvaluator.IsDisplayFilterSyntax(_config.Filter);
+                
+                if (_useDisplayFilter)
+                {
+                    // Use post-processing display filter
+                    _displayFilterEvaluator = new DisplayFilterEvaluator(_config.Filter);
+                    Console.WriteLine($"Using display filter (post-processing): {_config.Filter}");
+                }
+                else
+                {
+                    // Use BPF filter (efficient, applied at libpcap level)
+                    try
+                    {
+                        device.Filter = _config.Filter;
+                        Console.WriteLine($"Applied BPF filter: {_config.Filter}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Warning: BPF filter failed, falling back to display filter: {ex.Message}");
+                        // Fall back to display filter if BPF fails
+                        _useDisplayFilter = true;
+                        _displayFilterEvaluator = new DisplayFilterEvaluator(_config.Filter);
+                    }
+                }
             }
 
-            _isRunning = true;
+            // Use the local cancellationTokenSource reference to avoid race condition
+            var token = cancellationTokenSource.Token;
+            lock (_lock)
+            {
+                _isRunning = true;
+                // Process packets asynchronously
+                _processingTask = Task.Run(async () => await ProcessPacketsAsync(token), token);
+            }
 
-            // Process packets asynchronously
-            _processingTask = Task.Run(async () => await ProcessPacketsAsync(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
+            Console.WriteLine($"PCAP Receiver started with file: {_config.FilePath}");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error opening PCAP file: {ex.Message}");
-            _device?.Close();
-            _device?.Dispose();
-            _device = null;
+            lock (_lock)
+            {
+                _device?.Close();
+                _device?.Dispose();
+                _device = null;
+                // Clean up cancellation token source on error
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+            }
             throw;
         }
+
+        return Task.CompletedTask;
     }
 
     private async Task ProcessPacketsAsync(CancellationToken cancellationToken)
     {
-        if (_device == null)
-            return;
-
         // Process packets synchronously in background thread to avoid ref struct issues with async
         await Task.Run(() =>
         {
             try
             {
-                while (!cancellationToken.IsCancellationRequested && _isRunning)
+                while (!cancellationToken.IsCancellationRequested)
                 {
+                    ICaptureDevice? device;
+                    bool isRunning;
+
+                    // Get device reference and running state with lock
+                    lock (_lock)
+                    {
+                        device = _device;
+                        isRunning = _isRunning;
+                    }
+
+                    // Exit if device is null or not running
+                    if (device == null || !isRunning)
+                        break;
+
                     try
                     {
-                        // Get next packet
+                        // Re-check device is still valid before using it (device could be disposed by StopInternal)
+                        lock (_lock)
+                        {
+                            if (_device == null || _device != device || !_isRunning)
+                                break;
+                        }
+
+                        // Get next packet - device is validated and captured
                         PacketCapture packetCapture;
-                        var status = _device.GetNextPacket(out packetCapture);
+                        var status = device.GetNextPacket(out packetCapture);
                         
                         if (status != GetPacketStatus.PacketRead)
                         {
-                            // End of file reached
-                            Console.WriteLine("Reached end of PCAP file");
+                            // End of file reached - automatically stop
+                            Console.WriteLine("Reached end of PCAP file - stopping receiver");
+                            lock (_lock)
+                            {
+                                _isRunning = false;
+                            }
+                            // Stop the receiver cleanly
+                            StopInternal();
                             break;
                         }
 
@@ -96,6 +183,16 @@ public class PcapDataReceiverService : IDataReceiverService, IDisposable
 
                         // Parse the packet
                         var packet = Packet.ParsePacket(rawCapture.LinkLayerType, rawCapture.Data);
+
+                        // Apply display filter if enabled (post-processing)
+                        if (_useDisplayFilter && _displayFilterEvaluator != null)
+                        {
+                            if (!_displayFilterEvaluator.Matches(packet))
+                            {
+                                // Packet doesn't match display filter, skip it
+                                continue;
+                            }
+                        }
 
                         // Extract payload based on packet type
                         byte[]? payload = null;
@@ -116,6 +213,11 @@ public class PcapDataReceiverService : IDataReceiverService, IDisposable
                         {
                             DataReceived?.Invoke(this, payload);
                         }
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Device was disposed, exit
+                        break;
                     }
                     catch (Exception ex)
                     {
@@ -140,16 +242,32 @@ public class PcapDataReceiverService : IDataReceiverService, IDisposable
             }
             finally
             {
-                _isRunning = false;
+                lock (_lock)
+                {
+                    _isRunning = false;
+                }
             }
         }, cancellationToken);
     }
 
     public Task StopAsync()
     {
+        lock (_lock)
+        {
+            StopInternal();
+        }
+        return Task.CompletedTask;
+    }
+
+    private void StopInternal()
+    {
+        if (!_isRunning && _device == null)
+            return;
+
         _isRunning = false;
         _cancellationTokenSource?.Cancel();
-        
+
+        // Wait for processing task to complete (with timeout)
         if (_processingTask != null)
         {
             try
@@ -160,20 +278,36 @@ public class PcapDataReceiverService : IDataReceiverService, IDisposable
             {
                 Console.WriteLine($"Error waiting for processing task: {ex.Message}");
             }
+            _processingTask = null;
         }
 
-        _device?.Close();
-        _device?.Dispose();
-        _device = null;
-        
-        return Task.CompletedTask;
+        // Close and dispose device
+        try
+        {
+            _device?.Close();
+            _device?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error closing PCAP device: {ex.Message}");
+        }
+        finally
+        {
+            _device = null;
+        }
+
+        // Dispose cancellation token
+        _cancellationTokenSource?.Dispose();
+        _cancellationTokenSource = null;
+
+        Console.WriteLine("PCAP Receiver stopped and device closed");
     }
 
     public void Dispose()
     {
-        StopAsync().Wait(1000);
-        _device?.Dispose();
-        _cancellationTokenSource?.Dispose();
+        lock (_lock)
+        {
+            StopInternal();
+        }
     }
 }
-

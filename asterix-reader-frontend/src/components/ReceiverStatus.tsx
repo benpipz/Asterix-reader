@@ -1,4 +1,4 @@
-import { Box, Paper, Typography, Button, Chip, Alert } from '@mui/material';
+import { Box, Paper, Typography, Button, Chip } from '@mui/material';
 import { ReceiverStatus as ReceiverStatusType, UdpReceiverConfig, PcapReceiverConfig } from '../types/receiver';
 
 interface ReceiverStatusProps {
@@ -9,11 +9,7 @@ interface ReceiverStatusProps {
 
 export const ReceiverStatus = ({ status, onStop, isStopping = false }: ReceiverStatusProps) => {
   if (!status.isRunning && !status.mode) {
-    return (
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Alert severity="info">No receiver is currently running. Select a mode and configure to start.</Alert>
-      </Paper>
-    );
+    return null;
   }
 
   const getModeColor = (mode: string | null) => {

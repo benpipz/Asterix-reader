@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AsterixReader.Backend")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+25326a4f2e8365fc61883858e917528338e82fa6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e862b478abcc3ef88e916a3cd2edd35d36f2b704")]
 [assembly: System.Reflection.AssemblyProductAttribute("AsterixReader.Backend")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AsterixReader.Backend")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

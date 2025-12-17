@@ -7,7 +7,20 @@ export default defineConfig({
   server: {
     port: 5173,
     host: '0.0.0.0',
-    strictPort: false
+    strictPort: false,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/datahub': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        ws: true, // Enable WebSocket proxying for SignalR
+        secure: false,
+      },
+    },
   }
 })
 

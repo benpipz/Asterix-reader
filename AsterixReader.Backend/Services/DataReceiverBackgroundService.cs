@@ -1,5 +1,3 @@
-using AsterixReader.Backend.Services;
-
 namespace AsterixReader.Backend.Services;
 
 public class DataReceiverBackgroundService : BackgroundService
@@ -44,5 +42,4 @@ public class DataReceiverBackgroundService : BackgroundService
         await base.StopAsync(cancellationToken);
     }
 }
-
 

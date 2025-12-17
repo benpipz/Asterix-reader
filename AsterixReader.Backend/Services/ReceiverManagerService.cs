@@ -166,10 +166,23 @@ public class ReceiverManagerService : IReceiverManagerService
     {
         lock (_lock)
         {
+            // Check if receiver exists and is actually running
+            bool isRunning = _currentReceiver != null && _currentReceiver.IsRunning;
+            
+            // If PCAP receiver finished, clear it
+            if (_currentReceiver != null && !_currentReceiver.IsRunning && _currentMode == "PCAP")
+            {
+                // PCAP finished processing, clear the receiver
+                _currentReceiver = null;
+                _currentMode = null;
+                _currentConfig = null;
+                isRunning = false;
+            }
+            
             return new ReceiverStatus
             {
                 Mode = _currentMode,
-                IsRunning = _currentReceiver != null,
+                IsRunning = isRunning,
                 Config = _currentConfig
             };
         }

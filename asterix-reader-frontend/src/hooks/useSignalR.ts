@@ -17,7 +17,13 @@ export const useSignalR = () => {
       // Set up real-time data handler first (before connection)
       signalRService.onDataReceived((newData: ReceivedData) => {
         if (mounted) {
-          setData((prev) => [newData, ...prev]);
+          setData((prev) => {
+            // Add new data and sort by timestamp (oldest first)
+            const updated = [...prev, newData];
+            return updated.sort((a, b) => 
+              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            );
+          });
         }
       });
 
@@ -29,7 +35,13 @@ export const useSignalR = () => {
           // Reload data on reconnect
           if (state === signalR.HubConnectionState.Connected) {
             signalRService.getAllData().then((allData) => {
-              if (mounted) setData(allData);
+              if (mounted) {
+                // Sort by timestamp (oldest first)
+                const sorted = [...allData].sort((a, b) => 
+                  new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                );
+                setData(sorted);
+              }
             }).catch((err) => {
               console.error('Error reloading data:', err);
               if (mounted) {
@@ -50,7 +62,11 @@ export const useSignalR = () => {
         try {
           const allData = await signalRService.getAllData();
           if (mounted) {
-            setData(allData);
+            // Sort by timestamp (oldest first)
+            const sorted = [...allData].sort((a, b) => 
+              new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            );
+            setData(sorted);
           }
         } catch (err) {
           console.warn('Failed to load initial data, will retry on next connection:', err);

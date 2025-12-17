@@ -13,11 +13,18 @@ public class UdpDataReceiverService : IDataReceiverService, IDisposable
     private bool _isRunning;
     private readonly object _lock = new object();
 
-    public event EventHandler<byte[]>? DataReceived;
-
-    public UdpDataReceiverService()
+    public bool IsRunning
     {
+        get
+        {
+            lock (_lock)
+            {
+                return _isRunning;
+            }
+        }
     }
+
+    public event EventHandler<byte[]>? DataReceived;
 
     public void Configure(UdpReceiverConfig config)
     {
@@ -26,6 +33,9 @@ public class UdpDataReceiverService : IDataReceiverService, IDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
+        CancellationTokenSource? cancellationTokenSource = null;
+        UdpClient? udpClient = null;
+
         lock (_lock)
         {
             if (_isRunning)
@@ -36,14 +46,15 @@ public class UdpDataReceiverService : IDataReceiverService, IDisposable
 
             // Ensure any previous instance is fully stopped
             StopInternal();
+
+            // Create new cancellation token source inside lock to prevent race condition
+            cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _cancellationTokenSource = cancellationTokenSource;
         }
 
-        // Create new cancellation token source
-        _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        
-        // Create completely new UDP client
-        var localEndPoint = new IPEndPoint(IPAddress.Parse(_config.ListenAddress), _config.Port);
-        _udpClient = new UdpClient(localEndPoint);
+        // Create completely new UDP client outside lock (network operations can be slow)
+        var localEndPoint = new IPEndPoint(IPAddress.Parse(_config!.ListenAddress), _config.Port);
+        udpClient = new UdpClient(localEndPoint);
 
         // Join multicast group if configured
         if (_config.JoinMulticastGroup && !string.IsNullOrEmpty(_config.MulticastAddress))
@@ -51,22 +62,40 @@ public class UdpDataReceiverService : IDataReceiverService, IDisposable
             try
             {
                 var multicastAddress = IPAddress.Parse(_config.MulticastAddress);
-                _udpClient.JoinMulticastGroup(multicastAddress);
+                udpClient.JoinMulticastGroup(multicastAddress);
                 Console.WriteLine($"Joined multicast group: {multicastAddress}");
             }
             catch (Exception ex)
             {
-                _udpClient?.Dispose();
-                _udpClient = null;
+                udpClient?.Dispose();
+                udpClient = null;
                 Console.WriteLine($"Failed to join multicast group {_config.MulticastAddress}: {ex.Message}");
+                // Clean up cancellation token source on error
+                lock (_lock)
+                {
+                    _cancellationTokenSource?.Dispose();
+                    _cancellationTokenSource = null;
+                }
                 throw;
             }
         }
 
+        // Use the local cancellationTokenSource reference to avoid race condition
+        var token = cancellationTokenSource.Token;
         lock (_lock)
         {
+            // Re-check if we were stopped while creating the UDP client
+            // (StopInternal could have been called from another thread)
+            if (_cancellationTokenSource != cancellationTokenSource)
+            {
+                // We were stopped, clean up and exit
+                udpClient?.Dispose();
+                return;
+            }
+
+            _udpClient = udpClient;
             _isRunning = true;
-            _listeningTask = Task.Run(async () => await ListenForDataAsync(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
+            _listeningTask = Task.Run(async () => await ListenForDataAsync(token), token);
         }
 
         Console.WriteLine($"UDP Receiver started on {_config.ListenAddress}:{_config.Port}");
@@ -199,5 +228,4 @@ public class UdpDataReceiverService : IDataReceiverService, IDisposable
         }
     }
 }
-
 

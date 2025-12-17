@@ -18,6 +18,24 @@ class ReceiverService {
     }
   }
 
+  async uploadPcapFile(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${API_URL}/api/receiver/pcap/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: response.statusText }));
+      throw new Error(error.message || 'Failed to upload PCAP file');
+    }
+
+    const result = await response.json();
+    return result.filePath;
+  }
+
   async startPcapReceiver(config: PcapReceiverConfig): Promise<void> {
     const response = await fetch(`${API_URL}/api/receiver/pcap/start`, {
       method: 'POST',
